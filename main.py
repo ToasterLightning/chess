@@ -1,7 +1,5 @@
 import pygame, sys, os
 class Board:
-  orthagonal = {8, -1, 1, -8}
-  diagonal = {-9, 9, 7, -7}
   def __init__(self):
     self.squares = [0]*64
     self.selected = None
@@ -45,18 +43,17 @@ class Board:
     r = 7-pos[1]//80
     return (f,r)
   def move(self, original, new):
-    #TODO: OPTIMIZE USING SORTED BINARY SEARCH AT SOME POINT
-    if original == new:
+    if not new in self.moves[original]:
       return
     if self.squares[new]:
       pygame.mixer.Sound.play(self.sounds["capture"])
     else:
       pygame.mixer.Sound.play(self.sounds["move"])
     self.squares[new] = self.squares[original]
-    
     self.squares[original] = 0
     self.pieces.discard(original)
     self.pieces.add(new)
+    self.turn = 1 - self.turn
     self.generateMoves()
   def inSquare(pos):
     return Board.frts(*Board.infr(pos))
@@ -113,63 +110,125 @@ class Board:
     moves = [[] for i in range(64)]
     for piece in self.pieces:
       if self.squares[piece] // 8 != self.turn:
-        pass
-      #continue soon
-      if self.squares[piece] % 8 == 5 or self.squares[piece] % 8 == 6:
-        #rook or queen, orthoganal
-        file, rank = Board.stfr(piece)
+        continue
+      file, rank = Board.stfr(piece)
+      if self.squares[piece] % 8 == 5 or self.squares[piece] % 8 == 6 or self.squares[piece] % 8 == 7:
+        #rook, queen, or king, orthoganal
         s = piece
         for i in range(file):
           #left
           s -= 1
+          if self.squares[s] and self.squares[s] // 8 == self.turn:
+            break
           moves[piece].append(s)
+          if self.squares[piece] % 8 == 7 or self.squares[s] and self.squares[s] // 8 != self.turn:
+            break
         s = piece
         for i in range(7 - file):
           #right
           s += 1
+          if self.squares[s] and self.squares[s] // 8 == self.turn:
+            break
           moves[piece].append(s)
+          if self.squares[piece] % 8 == 7 or self.squares[s] and self.squares[s] // 8 != self.turn:
+            break
         s = piece
         for i in range(rank):
           #down
           s -= 8
+          if self.squares[s] and self.squares[s] // 8 == self.turn:
+            break
           moves[piece].append(s)
+          if self.squares[piece] % 8 == 7 or self.squares[s] and self.squares[s] // 8 != self.turn:
+            break
         s = piece
         for i in range(7 - rank):
           #up
           s += 8
-          moves[piece].append(s)          
-      if self.squares[piece] % 8 == 4 or self.squares[piece] % 8 == 6:
-        #bishop or queen, diagonal
-        file, rank = Board.stfr(piece)
+          if self.squares[s] and self.squares[s] // 8 == self.turn:
+            break
+          moves[piece].append(s)
+          if self.squares[piece] % 8 == 7 or self.squares[s] and self.squares[s] // 8 != self.turn:
+            break
+      if self.squares[piece] % 8 == 4 or self.squares[piece] % 8 == 6 or self.squares[piece] % 8 == 7:
+        #bishop, queen, or king, diagonal
         s = piece
         for i in range(min(file, rank)):
           #left-down
           s -= 9
+          if self.squares[s] and self.squares[s] // 8 == self.turn:
+            break
           moves[piece].append(s)
+          if self.squares[piece] % 8 == 7 or self.squares[s] and self.squares[s] // 8 != self.turn:
+            break
         s = piece
         for i in range(min(7 - file, rank)):
           #right-down
           s -= 7
+          if self.squares[s] and self.squares[s] // 8 == self.turn:
+            break
           moves[piece].append(s)
+          if self.squares[piece] % 8 == 7 or self.squares[s] and self.squares[s] // 8 != self.turn:
+            break
         s = piece
         for i in range(min(file, 7 - rank)):
           #left-up
           s += 7
+          if self.squares[s] and self.squares[s] // 8 == self.turn:
+            break
           moves[piece].append(s)
+          if self.squares[piece] % 8 == 7 or self.squares[s] and self.squares[s] // 8 != self.turn:
+            break
         s = piece
         for i in range(min(7 - file, 7 - rank)):
           s += 9
+          if self.squares[s] and self.squares[s] // 8 == self.turn:
+            break
           moves[piece].append(s)
-        pass
-        
-      if self.squares[piece] % 8 == 7:
-        pass
-
+          if self.squares[piece] % 8 == 7 or self.squares[s] and self.squares[s] // 8 != self.turn:
+            break
       if self.squares[piece] % 8 == 3:
-        pass
-
+        #Knight
+        for i in [2, -2]:
+          for j in [1, -1]:
+            if file + i < 8 and file + i >= 0 and rank + j < 8 and rank + j >= 0:
+              s = Board.frts(file + i, rank + j)
+              if not (self.squares[s] and self.squares[s] // 8 == self.turn):
+                moves[piece].append(s)
+            if rank + i < 8 and rank + i >= 0 and file + j < 8 and file + j >= 0:
+              s = Board.frts(file + j, rank + i)
+              if not (self.squares[s] and self.squares[s] // 8 == self.turn):
+                moves[piece].append(s)
       if self.squares[piece] % 8 == 1:
-        pass
+        #Pawn
+        #Regular moves
+        direct = 1 - self.turn*2
+        s = piece + 8 * direct
+        if not s > 63 or s < 0:
+          #Forward Moves
+          if not self.squares[s]:
+            moves[piece].append(s)
+            #Move forward twice check
+            s = s + 8 * direct
+            if rank == 1 + 5 * self.turn and not self.squares[s]:
+              moves[piece].append(s)
+          #Captures
+          s = piece + 8 * direct
+          f, r = Board.stfr(s)
+          #Capture to the left
+          if f > 0:
+            s = Board.frts(f - 1, r)
+            if board.squares[s] and board.squares[s]//8 != self.turn:
+              moves[piece].append(s)
+            
+          #Capture to the right
+          if f < 7:
+            s = Board.frts(f + 1, r)
+            if board.squares[s] and board.squares[s]//8 != self.turn:
+              moves[piece].append(s)
+          
+          
+          
     self.moves = moves        
     
   
