@@ -47,6 +47,7 @@ class Board:
   def move(self, original, new):
     enPassanting = False
     castling = 0
+    promoting = False
     if not new in self.moves[original]:
       return
     if self.enPassant and new == self.enPassant and self.squares[original]%8==1:
@@ -55,6 +56,8 @@ class Board:
       self.enPassant = original + 8 - 16 * self.turn
     else:
       self.enPassant = None
+    if self.squares[original] % 8 == 1 and new // 8 == 7 - 7 * self.turn:
+      promoting = True
     if self.squares[original] % 8 == 7:
       self.castleRights[self.turn * 2] = False
       self.castleRights[self.turn * 2 + 1] = False
@@ -68,7 +71,10 @@ class Board:
       self.castleRights[2] = False
     if original == 63 or new == 63:
       self.castleRights[3] = False
-    if self.squares[new] or enPassanting:
+    print(promoting)
+    if promoting:
+      pygame.mixer.Sound.play(self.sounds["promote"])
+    elif self.squares[new] or enPassanting:
       pygame.mixer.Sound.play(self.sounds["capture"])
     else:
       pygame.mixer.Sound.play(self.sounds["move"])
@@ -91,6 +97,10 @@ class Board:
         self.squares[x + 7] = 0
         self.pieces.discard(x + 7)
         self.pieces.add(x+5)
+    
+    #Temporary autoqueen
+    if promoting:
+      self.squares[new] = self.turn * 8 + 6
     self.turn = 1 - self.turn
     self.generateMoves()
   def inSquare(pos):
