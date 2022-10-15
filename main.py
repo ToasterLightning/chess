@@ -1,21 +1,10 @@
 import pygame, sys, os
-class Board:
+class State:
   def __init__(self):
     self.squares = [0]*64
-    self.selected = None
-    self.light = (250,230,210)
-    self.dark = (155,115,95)
-    self.highlight = (255,255,0)
-    self.held = False
-    self.cancel = False
-    self.sounds = dict()
     self.pieces = set()
     self.turn = 0
-    self.legalPointer = (200, 200, 200)
     self.enPassant = None
-    for name in ["move", "aimove", "capture", "check", "castle", "promote"]:
-      path = os.path.join(os.path.dirname(__file__),"Assets\\Audio\\"+name+".wav")
-      self.sounds[name] =  pygame.mixer.Sound(path)
     self.castleRights = [True, True, True, True]
     self.moves = [[] for i in range(64)]
   def getPiece(self, square):
@@ -24,22 +13,6 @@ class Board:
     return f + r*8
   def stfr(square):
     return (square%8, square//8)
-  def displayBoard(self, screen, pos):
-    for s in range(len(self.squares)):
-      f, r = Board.stfr(s)
-      if (f+r)%2:
-        color = self.light
-      else:
-        color = self.dark
-      if s == self.selected:
-        color = Board.colorBlending(color, self.highlight, .60)
-      pygame.draw.rect(screen, color, (f*80,(7-r)*80,80,80))
-      if self.squares[s] and not (s == self.selected and self.held):
-          screen.blit(sprites[self.squares[s]],(f*80,(7-r)*80))
-      if self.selected != None and s in self.moves[self.selected]:
-        pygame.draw.circle(screen, self.legalPointer, (f*80 + 40, (7-r)*80 + 40), 15)
-    if self.held and self.selected != None:
-      screen.blit(sprites[self.squares[self.selected]], (pos[0]-40,pos[1]-40))
   def infr(pos):
     f = pos[0]//80
     r = 7-pos[1]//80
@@ -48,8 +21,9 @@ class Board:
     enPassanting = False
     castling = 0
     promoting = False
+    ret = 0
     if not new in self.moves[original]:
-      return
+      return ret
     if self.enPassant and new == self.enPassant and self.squares[original]%8==1:
       enPassanting = True
     if original//8 == self.turn*5+1 and self.squares[original] % 8 == 1 and new == original + 16 - 32 * self.turn:
@@ -71,13 +45,12 @@ class Board:
       self.castleRights[2] = False
     if original == 63 or new == 63:
       self.castleRights[3] = False
-    print(promoting)
     if promoting:
-      pygame.mixer.Sound.play(self.sounds["promote"])
+      ret = 5
     elif self.squares[new] or enPassanting:
-      pygame.mixer.Sound.play(self.sounds["capture"])
+      ret = 2
     else:
-      pygame.mixer.Sound.play(self.sounds["move"])
+      ret = 1
     self.squares[new] = self.squares[original]
     self.squares[original] = 0
     self.pieces.discard(original)
@@ -97,14 +70,12 @@ class Board:
         self.squares[x + 7] = 0
         self.pieces.discard(x + 7)
         self.pieces.add(x+5)
-    
     #Temporary autoqueen
     if promoting:
       self.squares[new] = self.turn * 8 + 6
     self.turn = 1 - self.turn
     self.generateMoves()
-  def inSquare(pos):
-    return Board.frts(*Board.infr(pos))
+    return ret
   def fenConverter(self, fen):
     pos = fen[0:fen.find(" ")].split("/")
     squares = [0]*64
@@ -130,36 +101,12 @@ class Board:
     self.squares = squares
     self.pieces = pieces
     self.generateMoves()
-  def colorBlending(c1, c2, p):
-    return ((1-p)*c1[0] + p*c2[0], (1-p)*c1[1] + p*c2[1], (1-p)*c1[2] + p*c2[2])
-  def click(self, pos):
-    square = Board.inSquare(pos)
-    self.held = True
-    if self.selected != None:
-      if self.selected == square and self.selected != None:
-        self.cancel = True
-      else:
-        self.move(self.selected, square)
-        self.selected = None
-    elif self.squares[square]:
-      self.selected = square
-  def release(self, pos):
-    if self.selected == None:
-      return
-    square = Board.inSquare(pos)
-    if square == self.selected and self.cancel:
-      self.selected = None
-    elif square != self.selected:
-      self.move(self.selected, square)
-      self.selected = None
-    self.held = False
-    self.cancel = False
   def generateMoves(self):
     moves = [set() for i in range(64)]
     for piece in self.pieces:
       if self.squares[piece] // 8 != self.turn:
         continue
-      file, rank = Board.stfr(piece)
+      file, rank = State.stfr(piece)
       if self.squares[piece] % 8 == 5 or self.squares[piece] % 8 == 6 or self.squares[piece] % 8 == 7:
         #rook, queen, or king, orthoganal
         s = piece
@@ -240,11 +187,11 @@ class Board:
         for i in [2, -2]:
           for j in [1, -1]:
             if file + i < 8 and file + i >= 0 and rank + j < 8 and rank + j >= 0:
-              s = Board.frts(file + i, rank + j)
+              s = State.frts(file + i, rank + j)
               if not (self.squares[s] and self.squares[s] // 8 == self.turn):
                 moves[piece].add(s)
             if rank + i < 8 and rank + i >= 0 and file + j < 8 and file + j >= 0:
-              s = Board.frts(file + j, rank + i)
+              s = State.frts(file + j, rank + i)
               if not (self.squares[s] and self.squares[s] // 8 == self.turn):
                 moves[piece].add(s)
       if self.squares[piece] % 8 == 1:
@@ -262,17 +209,17 @@ class Board:
               moves[piece].add(s)
           #Captures
           s = piece + 8 * direct
-          f, r = Board.stfr(s)
+          f, r = State.stfr(s)
           #Capture to the left
           if f > 0:
-            s = Board.frts(f - 1, r)
-            if s == self.enPassant or (board.squares[s] and board.squares[s]//8 != self.turn):
+            s = State.frts(f - 1, r)
+            if s == self.enPassant or (self.squares[s] and self.squares[s]//8 != self.turn):
               moves[piece].add(s)
             
           #Capture to the right
           if f < 7:
-            s = Board.frts(f + 1, r)
-            if s == self.enPassant or (board.squares[s] and board.squares[s]//8 != self.turn):
+            s = State.frts(f + 1, r)
+            if s == self.enPassant or (self.squares[s] and self.squares[s]//8 != self.turn):
               moves[piece].add(s)
       s = piece
       if self.squares[piece] % 8 == 7:
@@ -299,10 +246,75 @@ class Board:
           
     self.moves = moves        
     
+class Game:
+  def __init__(self, fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 0"):
+    self.light = (250,230,210)
+    self.dark = (155,115,95)
+    self.highlight = (255,255,0)
+    self.legalPointer = (200, 200, 200)
+    
+    self.selected = None
+    self.held = False
+    self.cancel = False
+    
+    self.sounds = dict()
+    for name in ["move", "aimove", "capture", "check", "castle", "promote"]:
+      path = os.path.join(os.path.dirname(__file__),"Assets\\Audio\\"+name+".wav")
+      self.sounds[name] =  pygame.mixer.Sound(path)
   
-
-    
-    
+    self.state = State()
+    self.state.fenConverter(fen)
+  def colorBlending(c1, c2, p):
+    return ((1-p)*c1[0] + p*c2[0], (1-p)*c1[1] + p*c2[1], (1-p)*c1[2] + p*c2[2])
+  def displayBoard(self, screen, pos):
+    for s in range(len(self.state.squares)):
+      f, r = State.stfr(s)
+      if (f+r)%2:
+        color = self.light
+      else:
+        color = self.dark
+      if s == self.selected:
+        color = Game.colorBlending(color, self.highlight, .60)
+      pygame.draw.rect(screen, color, (f*80,(7-r)*80,80,80))
+      if self.state.squares[s] and not (s == self.selected and self.held):
+          screen.blit(sprites[self.state.squares[s]],(f*80,(7-r)*80))
+      if self.selected != None and s in self.state.moves[self.selected]:
+        pygame.draw.circle(screen, self.legalPointer, (f*80 + 40, (7-r)*80 + 40), 15)
+    if self.held and self.selected != None:
+      screen.blit(sprites[self.state.squares[self.selected]], (pos[0]-40,pos[1]-40))
+  def click(self, pos):
+    square = Game.inSquare(pos)
+    self.held = True
+    if self.selected != None:
+      if self.selected == square and self.selected != None:
+        self.cancel = True
+      else:
+        self.makeMove(self.selected, square)
+        self.selected = None
+    elif self.state.squares[square]:
+      self.selected = square
+  def release(self, pos):
+    if self.selected == None:
+      return
+    square = Game.inSquare(pos)
+    if square == self.selected and self.cancel:
+      self.selected = None
+    elif square != self.selected:
+      self.makeMove(self.selected, square)
+      self.selected = None
+    self.held = False
+    self.cancel = False
+  def inSquare(pos):
+    return State.frts(*State.infr(pos))
+  def makeMove(self, original, new):
+    result = self.state.move(original, new)
+    match result:
+      case 1:
+          pygame.mixer.Sound.play(self.sounds["move"])
+      case 2:
+          pygame.mixer.Sound.play(self.sounds["capture"])
+      case 5:
+          pygame.mixer.Sound.play(self.sounds["promote"])
         
           
           
@@ -339,11 +351,10 @@ for i in range(16):
 
 
 screen = pygame.display.set_mode((640, 640))
-board = Board()
-board.fenConverter("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 0")
+game = Game()
 running = True
 while running:
-  board.displayBoard(screen, pygame.mouse.get_pos())
+  game.displayBoard(screen, pygame.mouse.get_pos())
   pygame.display.update()
   for event in pygame.event.get():
     if event.type == pygame.QUIT:
@@ -351,9 +362,9 @@ while running:
       running = False
       break
     if event.type == pygame.MOUSEBUTTONDOWN:
-      board.click(pygame.mouse.get_pos())
+      game.click(pygame.mouse.get_pos())
     if event.type == pygame.MOUSEBUTTONUP:
-      board.release(pygame.mouse.get_pos())
+      game.release(pygame.mouse.get_pos())
 
 
 
